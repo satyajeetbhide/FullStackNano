@@ -5,6 +5,7 @@ from sqlalchemy import Column, Integer, ForeignKey, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import create_engine
+from sqlalchemy_utils import database_exists, create_database
 
 Base = declarative_base()
 
@@ -26,7 +27,7 @@ class Item(Base):
     name = Column(String(80), nullable=False)
     description = Column(String(100), nullable=True)
     # ForeignKey - Relationship
-    category_name = Column(String, ForeignKey('categories.name'))
+    category_id = Column(Integer, ForeignKey('categories.id'))
     category = relationship(Category)
     owner_email = Column(String(80), nullable=False)
 
@@ -34,7 +35,10 @@ class Item(Base):
 if os.path.exists('catalog.db'):
     os.remove('catalog.db')
 
-engine = create_engine('sqlite:///catalog.db')
+engine = create_engine('postgres://catalog:dbadmin@localhost/catalog')
+if not database_exists(engine.url):
+    create_database(engine.url)
+
 Base.metadata.create_all(engine)
 
 # this makes the connection between our class definitions and the
@@ -53,7 +57,13 @@ categories = [
     'Baseball'
 ]
 
-for cat in categories:
-    newcat = Category(name=cat)
-    session.add(newcat)
-session.commit()
+def clearDB():
+    session.query(Item).delete()
+    session.query(Category).delete()
+    session.commit()
+
+def populateDB():
+    for cat in categories:
+        newcat = Category(name=cat)
+        session.add(newcat)
+        session.commit()

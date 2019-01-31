@@ -18,7 +18,8 @@
 	4. Postgres sql
 11. A list of any third-party resources you made use of to complete this project.
 
-**Design**
 
 **Instructions to run the program**
-
+1. Set browser to 'http://http://54.213.80.45.xip.io/' to visit the Item Catalog application hosted on the server. 
+2. Navigate the links seen on the page to explore the application.
+3. The website also offers two json endpoints to query for categories available ('/catalog/json') and the items available within each ('/catalog/<category>/items/json').

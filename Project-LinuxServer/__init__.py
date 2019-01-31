@@ -4,6 +4,7 @@ from flask import session as login_session
 from flask import make_response, flash, g
 
 from sqlalchemy import create_engine, and_, exists
+
 from sqlalchemy.orm import sessionmaker
 from db_setup import Base, Category, Item
 
@@ -16,18 +17,18 @@ from collections import deque
 import random
 import string
 from functools import wraps
+
 app = Flask(__name__)
 
-engine = create_engine('sqlite:///catalog.db')
+engine = create_engine('postgres://catalog:dbadmin@localhost/catalog')
 Base.metadata.bind = engine
 
 DBSession = sessionmaker(bind=engine)
 db_session = DBSession()
 
-CLIENT_ID = json.loads(open('client_secrets.json', 'r').read())[
+CLIENT_ID = json.loads(open('/var/www/FLASKAPPS/catalogapp/client_secrets.json', 'r').read())[
     'web']['client_id']
 recentItems = deque('')
-
 
 def pushItemToRecents(category, item):
     if (category, item) in recentItems:
@@ -88,7 +89,7 @@ def gconnect():
 
     code = request.data
     try:
-        oauthflow = flow_from_clientsecrets('client_secrets.json', scope='')
+        oauthflow = flow_from_clientsecrets('/var/www/FLASKAPPS/catalogapp/client_secrets.json', scope='')
         oauthflow.redirect_uri = 'postmessage'
         credentials = oauthflow.step2_exchange(code)
     except FlowExchangeError:
@@ -205,29 +206,77 @@ def index():
     recents = list(recentItems)
     return render_template("catalog_index.html", **locals())
 
-
 @app.route('/catalog/<path:category>/items', methods=['GET'])
 def category_index(category):
     # This is done as a workaround for "ProgrammingError: SQLite objects
     # created in a thread can only be used in that same thread."
     db_session = DBSession()
     categories = [c.name for c in db_session.query(Category).all()]
+    category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
     items = [r.name for r in db_session.query(
-        Item).filter_by(category_name=category)]
+        Item).filter_by(category_id=category_obj.id)]
 
     return render_template("category_index.html", **locals())
 
+@app.route('/catalog/<path:category>/<path:item>/delete', methods=['POST'])
+@login_required
+@user_authorized
+def delete_item(category, item):
+    # This is done as a workaround for "ProgrammingError: SQLite objects
+    # created in a thread can only be used in that same thread."
+    db_session = DBSession()
+    category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
+    curr_item = db_session.query(Item).filter_by(name=item, category_id=category_obj.id).one_or_none()
+    if curr_item:
+        db_session.delete(curr_item)
+        db_session.commit()
+        recentItems.remove((category, item))
+    return redirect(url_for('category_index', category=category))
+
+@app.route('/catalog/<path:category>/<path:item>/edit',
+           methods=['GET', 'POST'])
+@login_required
+@user_authorized
+def edit_item(category, item):
+    # This is done as a workaround for "ProgrammingError: SQLite objects
+    # created in a thread can only be used in that same thread."
+    db_session = DBSession()
+    if request.method == 'GET':
+        category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
+        curr_item = db_session.query(Item).filter_by(name=item, category_id=category_obj.id).one_or_none()
+        categories = [c.name for c in db_session.query(Category).all()]
+        return render_template(
+            "edit_item.html", item=curr_item, categories=categories,
+            category=category)
+    else:
+        category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
+        curr_item = db_session.query(Item).filter_by(name=item, category_id=category_obj.id).one_or_none()
+        if not curr_item:
+            return redirect(url_for('index'))
+        curr_item.name = request.form.get('name')
+        curr_item.description = request.form.get('description')
+        curr_item.category = db_session.query(Category).filter_by(
+            name=request.form.get('category')).one()
+        db_session.commit()
+
+        recentItems.remove((category, item))
+        pushItemToRecents(request.form.get('category'), curr_item.name)
+        return redirect(
+            url_for('item_index', category=request.form.get('category'),
+                    item=curr_item.name))
 
 @app.route('/catalog/<path:category>/<path:item>', methods=['GET'])
 def item_index(category, item):
-    pushItemToRecents(category, item)
     # This is done as a workaround for "ProgrammingError: SQLite objects
     # created in a thread can only be used in that same thread."
     db_session = DBSession()
     curr_item = db_session.query(Item).filter_by(name=item).one_or_none()
-    return render_template(
-        "item_index.html", item=curr_item, category=category)
-
+    if curr_item:
+        pushItemToRecents(category, item)
+        return render_template(
+            "item_index.html", item=curr_item, category=category)
+    else:
+        return redirect(url_for('index'))
 
 @app.route('/add_item', methods=['GET', 'POST'])
 @login_required
@@ -239,10 +288,12 @@ def add_item():
         # Create item
         # Make sure another item by the same name does not exist in the
         # category
+        category_obj = db_session.query(Category).filter_by(name=request.form.get('category')).one_or_none()
         already_exists = db_session.query(exists().where(
             and_(Item.name == request.form.get('name'),
-                 Item.category_name == request.form.get('category')))).scalar()
+                 Item.category_id == category_obj.id))).scalar()
         if (already_exists):
+            flash("This item already exists")
             return redirect(url_for('add_item'))
 
         newitem = Item(name=request.form.get('name'),
@@ -253,59 +304,12 @@ def add_item():
         db_session.add(newitem)
         db_session.commit()
         return redirect(
-            url_for('item_index', category=newitem.category_name,
+            url_for('item_index', category=request.form.get('category'),
                     item=newitem.name))
     else:
         categories = [c.name for c in db_session.query(Category).all()]
         category = request.args.get('category', None)
         return render_template('add_item.html', **locals())
-
-
-@app.route('/catalog/<path:category>/<path:item>/edit',
-           methods=['GET', 'POST'])
-@login_required
-@user_authorized
-def edit_item(category, item):
-    # This is done as a workaround for "ProgrammingError: SQLite objects
-    # created in a thread can only be used in that same thread."
-    db_session = DBSession()
-    if request.method == 'GET':
-        curr_item = db_session.query(Item).filter_by(name=item).one_or_none()
-        categories = [c.name for c in db_session.query(Category).all()]
-        return render_template(
-            "edit_item.html", item=curr_item, categories=categories,
-            category=category)
-    else:
-        curr_item = db_session.query(Item).filter_by(name=item).one_or_none()
-        if not curr_item:
-            return redirect(url_for('index'))
-        curr_item.name = request.form.get('name')
-        curr_item.description = request.form.get('description')
-        curr_item.category = db_session.query(Category).filter_by(
-            name=request.form.get('category')).one()
-        db_session.commit()
-
-        recentItems.remove((category, item))
-        pushItemToRecents(curr_item.category_name, curr_item.name)
-        return redirect(
-            url_for('item_index', category=curr_item.category_name,
-                    item=curr_item.name))
-
-
-@app.route('/catalog/<path:category>/<path:item>/delete', methods=['POST'])
-@login_required
-@user_authorized
-def delete_item(category, item):
-    # This is done as a workaround for "ProgrammingError: SQLite objects
-    # created in a thread can only be used in that same thread."
-    db_session = DBSession()
-    curr_item = db_session.query(Item).filter_by(name=item).one_or_none()
-    if curr_item:
-        db_session.delete(curr_item)
-        db_session.commit()
-        recentItems.remove((category, item))
-    return redirect(url_for('category_index', category=category))
-
 
 @app.route('/catalog/json', methods=['GET'])
 def catalog_data():
@@ -327,15 +331,16 @@ def catalog_items_data(category):
     # This is done as a workaround for "ProgrammingError: SQLite objects
     # created in a thread can only be used in that same thread."
     db_session = DBSession()
+    category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
     items = [r for r in db_session.query(
-        Item).filter_by(category_name=category)]
+        Item).filter_by(category_id=category_obj.id)]
     ret = []
     for item in items:
         ret.append({
             'id': item.id,
             'name': item.name,
             'description': item.description,
-            'category': item.category_name
+            'category': category_obj.name
         })
     return json.dumps(ret)
 
@@ -345,14 +350,15 @@ def catalog_item_data(category, item):
     # This is done as a workaround for "ProgrammingError: SQLite objects
     # created in a thread can only be used in that same thread."
     db_session = DBSession()
+    category_obj = db_session.query(Category).filter_by(name=category).one_or_none()
     item = db_session.query(
-        Item).filter_by(name=item).one_or_none()
+        Item).filter_by(name=item, category_id=category_obj.id).one_or_none()
     if item:
         ret = json.dumps({
             'id': item.id,
             'name': item.name,
             'description': item.description,
-            'category': item.category_name
+            'category': category_obj.name
         })
     else:
         ret = ''
@@ -360,7 +366,7 @@ def catalog_item_data(category, item):
     return ret
 
 
+
+app.secret_key = 'super secret key'
 if __name__ == "__main__":
-    app.debug = True
-    app.secret_key = 'super secret key'
-    app.run(host='0.0.0.0', port=5000)
+    app.run()
