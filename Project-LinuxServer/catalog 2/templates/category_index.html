@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-3">
+            <h2>Category</h2>
+            {% for category in categories %}
+                <ul><a href={{ url_for('category_index', category=category) }}>{{category}}</a></ul>
+            {% endfor %}
+        </div>
+        <div class="col-3 offset-1">
+            <h2><em>{{category}}</em> Items</h2>
+            {% for item in items %}
+                <ul><a href={{ url_for('item_index', category=category, item=item) }} >{{item}}</a></ul>
+            {% endfor %}
+        </div>
+        <div class="col-2 offset-1">
+            <a href="/add_item?category={{category}}">Add Item</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

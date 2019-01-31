@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>Enter Item Details</h2>
+    <form action='/add_item' method="POST">
+        Name: <br>
+        <input type="text" name="name">
+        <br>
+        Description: <br>
+        <input type="text" name="description">
+        <br>
+        Category: <br>
+        {% if category %}
+        <input type="text" name="category" value={{category}} readonly>
+        {% else %}
+        <select name="category">
+            {% for cat in categories %}
+                <option value="{{cat}}">{{cat}}</option>
+            {% endfor %}
+        </select> 
+        {% endif %}
+        <br>
+        <br>
+        <input type="submit">
+    </form>
+</div>
+{% endblock %}

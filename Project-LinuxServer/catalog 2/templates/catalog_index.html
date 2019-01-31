@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+        <div class="row">
+            <div class="col-3">
+                <h2>Categories</h2>
+                {% for cat in categories%}
+                    <ul><a href={{"/catalog/"~cat[0]~"/items"}}>{{cat[0]}}</a></ul>
+                {% endfor%}
+            </div>
+            <div class="col-3 offset-1">
+                <h2>Latest Items</h2>
+                {% if recents%}
+                    {% for item in recents%}
+                        <ul><a href={{ url_for('item_index', category=item[0], item=item[1]) }}>{{item[1]}} <em>({{item[0]}})</em></a></ul>
+                    {% endfor%}
+                {% else %}
+                    No recent items
+                {% endif %}
+            </div>
+            <div class="col-2 offset-1">
+                <a href="/add_item">Add Item</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}
